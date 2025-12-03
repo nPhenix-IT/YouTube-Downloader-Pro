@@ -69,6 +69,8 @@ Cette application répond à plusieurs besoins concrets :
 📱 Évolutivité (Mobile)
 
 Une version allégée pour Android a également été prototypée. Elle adapte l'interface aux écrans tactiles et utilise une logique de téléchargement simplifiée (sans dépendance binaire lourde) pour respecter les contraintes de l'environnement mobile (sandboxing, stockage).
+
+
 💡 Le mot du développeur
 
     "Ce projet a été conçu pour combler le fossé entre les outils en ligne de commande puissants mais complexes (comme yt-dlp) et les utilisateurs finaux qui désirent une interface graphique simple, belle et fonctionnelle. Il démontre la puissance de Python pour créer des applications de bureau complètes."
