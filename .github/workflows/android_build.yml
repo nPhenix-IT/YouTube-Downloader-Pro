@@ -40,11 +40,11 @@ jobs:
         pip install flet # On s'assure que Flet est là pour la commande build
 
     # 6. Compiler l'APK
-    # --project : ton fichier python
-    # --org : identifiant unique (laisse com.example ou met ton nom)
+    # CORRECTION : Suppression de --product-name et --org qui causaient l'erreur
+    # On garde uniquement --project et --verbose
     - name: Build APK with Flet
       run: |
-        flet build apk --project main_android.py --product-name "YTDL Pro" --org "com.tonnom.ytdl" --verbose
+        flet build apk --project main_android.py --verbose
 
     # 7. Sauvegarder l'APK pour que tu puisses le télécharger
     - name: Upload APK Artifact
