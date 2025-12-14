@@ -1,54 +1,68 @@
-name: Build YD Android APK
+name: Build Android APK with Permissions
 
 on:
   push:
     branches: [ "main", "master" ]
-  workflow_dispatch: # Permet de lancer manuellement avec un bouton
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-    # 1. Récupérer le code
     - name: Checkout code
       uses: actions/checkout@v3
 
-    # 2. Installer Python
     - name: Setup Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.11'
 
-    # 3. Installer Java (Nécessaire pour Android)
     - name: Setup Java
       uses: actions/setup-java@v3
       with:
         distribution: 'temurin'
         java-version: '17'
 
-    # 4. Installer Flutter (Moteur de Flet Mobile)
     - name: Setup Flutter
       uses: subosito/flutter-action@v2
       with:
-        flutter-version: '3.19.0' # Version stable recommandée
+        flutter-version: '3.19.0'
 
-    # 5. Installer les dépendances Python
     - name: Install Dependencies
       run: |
         pip install -r requirements.txt
-        pip install flet # On s'assure que Flet est là pour la commande build
+        pip install flet
 
-    # 6. Compiler l'APK
-    # CORRECTION : Suppression de --product-name et --org qui causaient l'erreur
-    # On garde uniquement --project et --verbose
-    - name: Build APK with Flet
+    # --- CORRECTION PERMISSIONS ---
+    # 1. On crée un vrai projet Flet pour avoir accès aux fichiers de config
+    - name: Create Flet Project
       run: |
-        flet build apk --project main_android.py --verbose
+        flet create my_app
+        # On remplace le main du projet par notre code
+        cp main_android.py my_app/main.py
+        cp requirements.txt my_app/
 
-    # 7. Sauvegarder l'APK pour que tu puisses le télécharger
+    # 2. On injecte les permissions dans le fichier AndroidManifest.xml
+    - name: Inject Permissions in Manifest
+      run: |
+        MANIFEST="my_app/android/app/src/main/AndroidManifest.xml"
+        # On insère les permissions de stockage et internet
+        sed -i '/<application/i \    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>' $MANIFEST
+        sed -i '/<application/i \    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>' $MANIFEST
+        sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>' $MANIFEST
+        
+        # Vérification (optionnel, pour le log)
+        cat $MANIFEST
+
+    # 3. On compile le projet modifié
+    - name: Build APK
+      run: |
+        cd my_app
+        flet build apk --verbose
+
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       with:
         name: youtube-downloader-apk
-        path: build/apk/app-release.apk
+        path: my_app/build/apk/app-release.apk
