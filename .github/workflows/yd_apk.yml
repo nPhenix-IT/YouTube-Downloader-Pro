@@ -1,4 +1,4 @@
-name: Build Android APK (Fixed)
+name: Build Android APK (Double Build Strategy)
 
 on:
   push:
@@ -27,60 +27,71 @@ jobs:
     - name: Setup Flutter
       uses: subosito/flutter-action@v2
       with:
-        flutter-version: '3.22.0' # Version récente stable
+        flutter-version: '3.22.0'
 
     - name: Install Dependencies
       run: |
         pip install -r requirements.txt
         pip install flet
 
-    # 1. On génère la structure du projet Flet
-    - name: Scaffold Flet Project
+    # 1. SETUP & PREMIER BUILD (Génération de la structure)
+    - name: Setup & Gen Android Project
       run: |
-        # On crée le projet
+        # Création du projet Flet
         flet create apk_project
         
-        # On attend un peu pour être sûr que le système de fichier est synchro
-        sleep 2
-        
-        # On remplace le code par le nôtre
+        # Copie de tes fichiers dans le projet
         cp main_android.py apk_project/main.py
         cp requirements.txt apk_project/
+        
+        cd apk_project
+        
+        # On lance un PREMIER build. 
+        # Cela va générer le dossier 'build/flutter' qui contient le projet Android.
+        # On ne s'intéresse pas à l'APK produit ici, juste à la structure.
+        flet build apk --verbose
 
-    # 2. DEBUG & Injection des permissions
+    # 2. INJECTION DES PERMISSIONS (Maintenant que le fichier existe)
     - name: Inject Permissions
       run: |
-        echo "Recherche du fichier AndroidManifest.xml..."
-        # On utilise find pour localiser le fichier, peu importe où il est
-        MANIFEST=$(find apk_project -name "AndroidManifest.xml" | head -n 1)
+        echo "Recherche du fichier AndroidManifest.xml généré..."
+        # On cherche le fichier dans le dossier de build généré par Flet
+        MANIFEST=$(find apk_project -name "AndroidManifest.xml" | grep "main/AndroidManifest.xml" | head -n 1)
         
         if [ -z "$MANIFEST" ]; then
-            echo "ERREUR: AndroidManifest.xml introuvable !"
-            # Listons les fichiers pour comprendre la structure
-            find apk_project -maxdepth 4
+            echo "ERREUR CRITIQUE: Manifest introuvable !"
+            find apk_project -maxdepth 5
             exit 1
-        else
-            echo "Fichier trouvé : $MANIFEST"
-            
-            # Injection des permissions de stockage et internet
-            # On utilise une syntaxe sed simple et robuste
-            sed -i '/<application/i \    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>' "$MANIFEST"
-            sed -i '/<application/i \    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>' "$MANIFEST"
-            sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>' "$MANIFEST"
-            
-            echo "--- Permissions injectées ---"
-            grep "uses-permission" "$MANIFEST"
         fi
+        
+        echo "Fichier trouvé : $MANIFEST"
+        
+        # Injection des permissions
+        sed -i '/<application/i \    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>' "$MANIFEST"
+        sed -i '/<application/i \    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>' "$MANIFEST"
+        sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>' "$MANIFEST"
+        
+        echo "--- Vérification ---"
+        grep "uses-permission" "$MANIFEST"
 
-    # 3. Compilation avec FLUTTER
-    - name: Build APK with Flutter
+    # 3. RE-COMPILATION FINALE (Avec Flutter directement)
+    - name: Final Build with Flutter
       run: |
-        cd apk_project
-        flutter pub get
+        # On trouve le dossier du projet Flutter généré (là où est pubspec.yaml)
+        FLUTTER_ROOT=$(dirname $(find apk_project -name "pubspec.yaml" | grep "build" | head -n 1))
+        echo "Racine Flutter : $FLUTTER_ROOT"
+        
+        cd "$FLUTTER_ROOT"
+        
+        # On recompile l'APK en mode Release (cette fois avec les permissions !)
         flutter build apk --release
+        
+        # On sort l'APK du dossier profond pour le rendre accessible
+        mkdir -p ../../../output
+        cp build/app/outputs/flutter-apk/app-release.apk ../../../output/youtube-downloader.apk
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       with:
         name: youtube-downloader-apk
-        path: apk_project/build/app/outputs/flutter-apk/app-release.apk
+        path: output/youtube-downloader.apk
