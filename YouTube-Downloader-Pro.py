@@ -6,11 +6,10 @@ import time
 import imageio_ffmpeg
 import platform
 import locale
-import subprocess # Nécessaire pour macOS (langue et ouverture dossier)
-import ctypes # Nécessaire pour détecter la langue sur Windows
+import subprocess 
+import ctypes 
 
 # --- Système de Traduction ---
-# Dictionnaire contenant tous les textes en FR et EN
 TRANSLATIONS = {
     "fr": {
         "window_title": "YouTube Downloader Pro",
@@ -22,6 +21,7 @@ TRANSLATIONS = {
         "col_right_title": "2. Options & Progression",
         "format_label": "Format",
         "quality_label": "Qualité",
+        "compat_label": "Mode Compatibilité (Tablette/TV)", 
         "dl_mp4_btn": "TÉLÉCHARGER MP4",
         "dl_mp3_btn": "CONVERTIR EN MP3",
         "waiting": "En attente...",
@@ -32,6 +32,8 @@ TRANSLATIONS = {
         "analyzing": "Analyse en cours...",
         "videos_found": "{} vidéos trouvées",
         "error": "Erreur : {}",
+        "error_private": "Vidéo privée/inaccessible détectée.",
+        "skipped": "Ignorée, passage à la suivante...",
         "processing": "Traitement {}/{}..."
     },
     "en": {
@@ -44,6 +46,7 @@ TRANSLATIONS = {
         "col_right_title": "2. Options & Progress",
         "format_label": "Format",
         "quality_label": "Quality",
+        "compat_label": "Compatibility Mode (Tablet/TV)",
         "dl_mp4_btn": "DOWNLOAD MP4",
         "dl_mp3_btn": "CONVERT TO MP3",
         "waiting": "Waiting...",
@@ -54,60 +57,40 @@ TRANSLATIONS = {
         "analyzing": "Analyzing...",
         "videos_found": "{} videos found",
         "error": "Error: {}",
+        "error_private": "Private/Unavailable video detected.",
+        "skipped": "Skipped, moving to next...",
         "processing": "Processing {}/{}..."
     }
 }
 
-# --- Détection Avancée de la Langue ---
+# --- Détection de la Langue ---
 def get_system_language():
-    """
-    Détecte la langue de l'interface utilisateur en fonction de l'OS.
-    Retourne 'fr' ou 'en'.
-    """
     os_name = platform.system()
-    detected_lang = "en" # Langue par défaut (anglais)
-
+    detected_lang = "en" 
     try:
         if os_name == "Windows":
-            # Sur Windows, on utilise l'API système via ctypes pour être précis
             windll = ctypes.windll.kernel32
-            # Récupère l'ID de langue utilisateur (ex: 1036 pour FR Standard)
             lang_id = windll.GetUserDefaultUILanguage()
-            # Le masque 0x3FF permet de récupérer l'ID primaire de la langue
-            # 0x0C (12) correspond au Français (toutes régions confondues)
             if (lang_id & 0x3FF) == 0x0C:
                 detected_lang = "fr"
-        
-        elif os_name == "Darwin": # macOS
-            # Sur Mac, le module locale est souvent cassé. On lit la config Apple.
-            # On interroge la liste des langues préférées
+        elif os_name == "Darwin": 
             cmd = "defaults read -g AppleLanguages"
             result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
             output = result.stdout
-            
-            # La sortie est une liste textuelle : ( "fr-FR", "en-US", ... )
-            # On vérifie simplement si "fr" apparaît dans les premiers caractères
             if output:
-                # On nettoie un peu pour regarder le début de la liste
                 head = output.strip().replace('\n', '').replace(' ', '')[:30]
-                if '"fr' in head: # Cherche "fr... dans la première entrée
+                if '"fr' in head: 
                     detected_lang = "fr"
-        
         else:
-            # Linux / Autre : On utilise la méthode standard locale
             sys_locale = locale.getdefaultlocale()[0]
             if sys_locale and sys_locale.startswith("fr"):
                 detected_lang = "fr"
-
     except Exception as e:
         print(f"Erreur détection langue ({e}), fallback sur EN.")
-
     return detected_lang
 
-# Initialisation de la langue
 current_lang = get_system_language()
 
-# Fonction helper pour récupérer le texte traduit
 def tr(key, *args):
     text = TRANSLATIONS[current_lang].get(key, key)
     if args:
@@ -125,20 +108,15 @@ def main(page: ft.Page):
     # --- Configuration de la fenêtre ---
     page.title = tr("window_title")
     page.theme_mode = "dark"
-    
-    # Dimensions cibles ajustées (plus compactes)
     width = 700
-    height = 550
+    height = 600 
 
     page.window_width = width
     page.window_height = height
-    
-    # --- VERROUILLAGE STRICT (Fixe) ---
     page.window_min_width = width
     page.window_max_width = width
     page.window_min_height = height
     page.window_max_height = height
-    
     page.window_resizable = False 
     page.window_maximizable = False
     
@@ -148,17 +126,33 @@ def main(page: ft.Page):
 
     # --- Variables d'état ---
     home = os.path.expanduser('~')
-    download_path = os.path.join(home, tr("window_title")) 
+    app_folder_name = tr("window_title") 
+
+    # Définition du chemin selon l'OS
+    if platform.system() == "Darwin": # macOS
+        base_folder = os.path.join(home, 'Movies')
+    elif platform.system() == "Windows": # Windows
+        base_folder = os.path.join(home, 'Videos')
+    else: # Linux / Autre
+        base_folder = os.path.join(home, 'Videos')
+
+    download_path = os.path.join(base_folder, app_folder_name)
+
     if not os.path.exists(download_path):
-        try: os.makedirs(download_path)
-        except: download_path = os.path.join(home, tr("window_title"))
+        try: 
+            os.makedirs(download_path)
+        except: 
+            download_path = os.path.join(home, 'Downloads', app_folder_name)
+            if not os.path.exists(download_path):
+                try: os.makedirs(download_path)
+                except: pass
 
     current_state = DownloadState.IDLE
     video_list_data = []
     download_queue = []
     current_video_index = 0
 
-    # --- UI : Zone Recherche (Haut de page) ---
+    # --- UI : Zone Recherche ---
     title_text = ft.Text(tr("window_title"), size=24, weight="bold")
     
     url_input = ft.TextField(
@@ -182,7 +176,7 @@ def main(page: ft.Page):
 
     search_area = ft.Row([url_input, analyze_btn], alignment="center")
 
-    # --- UI : Colonne Gauche (Liste) ---
+    # --- UI : Colonne Gauche ---
     videos_list_view = ft.ListView(expand=True, spacing=5, padding=10, auto_scroll=False)
     select_all_checkbox = ft.Checkbox(label=tr("select_all"), value=True, on_change=lambda e: toggle_select_all(e))
     list_info_text = ft.Text(tr("no_video"), color="grey", italic=True, size=12)
@@ -204,15 +198,17 @@ def main(page: ft.Page):
         expand=True
     )
 
-    # --- UI : Colonne Droite (Contrôles & Progression) ---
+    # --- UI : Colonne Droite ---
     
     def on_format_change(e):
         if format_dropdown.value == "MP3":
             resolution_dropdown.visible = False
+            compatibility_checkbox.visible = False 
             start_download_btn.text = tr("dl_mp3_btn")
             start_download_btn.icon = "audiotrack"
         else:
             resolution_dropdown.visible = True
+            compatibility_checkbox.visible = True
             start_download_btn.text = tr("dl_mp4_btn")
             start_download_btn.icon = "download"
         page.update()
@@ -249,6 +245,12 @@ def main(page: ft.Page):
 
     options_row = ft.Row([format_dropdown, resolution_dropdown], alignment="center")
 
+    compatibility_checkbox = ft.Checkbox(
+        label=tr("compat_label"),
+        value=False,
+        label_style=ft.TextStyle(size=12, color="grey")
+    )
+
     start_download_btn = ft.ElevatedButton(
         text=tr("dl_mp4_btn"),
         icon="download",
@@ -260,7 +262,6 @@ def main(page: ft.Page):
         on_click=lambda e: start_download_sequence(e)
     )
 
-    # NOUVEAU BOUTON : Ouvrir le dossier
     open_folder_btn = ft.ElevatedButton(
         text=tr("open_folder_btn"),
         icon="folder_open",
@@ -268,7 +269,7 @@ def main(page: ft.Page):
         color="white",
         height=45,
         width=280,
-        visible=False, # Caché par défaut
+        visible=False, 
         on_click=lambda e: open_destination_folder()
     )
 
@@ -290,10 +291,11 @@ def main(page: ft.Page):
             ft.Container(height=5),
             
             options_row,
+            ft.Container(height=5),
+            compatibility_checkbox, 
             
             ft.Container(height=10),
             start_download_btn,
-            # open_folder_btn a été déplacé en bas
             ft.Container(height=20), 
             
             ft.Container(
@@ -311,8 +313,8 @@ def main(page: ft.Page):
             
             ft.Container(height=10),
             controls_row,
-            ft.Container(height=10), # Espace avant le bouton dossier
-            open_folder_btn, # Emplacement modifié : juste avant le texte
+            ft.Container(height=10), 
+            open_folder_btn, 
             ft.Container(height=5),
             ft.Text(tr("folder_label") + download_path, size=10, color="grey", text_align="center")
         ],
@@ -333,15 +335,14 @@ def main(page: ft.Page):
     # --- Logique Métier ---
 
     def open_destination_folder():
-        """Ouvre le dossier de téléchargement selon l'OS"""
         path = download_path
         try:
             sys_os = platform.system()
             if sys_os == "Windows":
                 os.startfile(path)
-            elif sys_os == "Darwin": # macOS
+            elif sys_os == "Darwin": 
                 subprocess.Popen(["open", path])
-            else: # Linux
+            else: 
                 subprocess.Popen(["xdg-open", path])
         except Exception as e:
             print(f"Erreur ouverture dossier: {e}")
@@ -401,7 +402,13 @@ def main(page: ft.Page):
             videos_list_view.controls.clear()
             for vid in video_list_data:
                 title = vid.get('title', 'Sans titre')
-                vid_url = vid.get('url') if 'entries' not in info else f"https://www.youtube.com/watch?v={vid['id']}"
+                
+                vid_id = vid.get('id')
+                if vid_id:
+                    vid_url = f"https://www.youtube.com/watch?v={vid_id}"
+                else:
+                    vid_url = vid.get('webpage_url') or vid.get('url')
+
                 cb = ft.Checkbox(label=title, value=True, data=vid_url)
                 videos_list_view.controls.append(cb)
 
@@ -411,7 +418,12 @@ def main(page: ft.Page):
             page.update()
 
         except Exception as e:
-            list_info_text.value = tr("error", str(e))
+            error_msg = str(e)
+            if "Private video" in error_msg or "Sign in" in error_msg:
+                list_info_text.value = tr("error_private")
+            else:
+                list_info_text.value = tr("error", error_msg)
+            
             analyze_btn.disabled = False
             page.update()
 
@@ -428,9 +440,7 @@ def main(page: ft.Page):
             try:
                 total = d.get('total_bytes') or d.get('total_bytes_estimate')
                 downloaded = d.get('downloaded_bytes', 0)
-                
                 percent_str = "0%"
-                
                 if total:
                     ratio = downloaded / total
                     progress_bar.value = ratio
@@ -444,7 +454,6 @@ def main(page: ft.Page):
                         progress_bar.value = float(p) / 100
                         percent_str = f"{p}%"
                     except: pass
-
                 current_video_label.value = f"Downloading : {percent_str}"
                 speed_text.value = f"Speed: {d.get('_speed_str', '-')}"
                 eta_text.value = f"ETA: {d.get('_eta_str', '-')}"
@@ -458,13 +467,24 @@ def main(page: ft.Page):
 
         selected_format = format_dropdown.value
         res_value = resolution_dropdown.value.replace("p", "")
+        force_compatibility = compatibility_checkbox.value
 
         while current_video_index < len(download_queue):
             if current_state == DownloadState.CANCELLED: break
             if current_state == DownloadState.PAUSED: break
 
-            url = download_queue[current_video_index]
+            # Récupération de l'objet Checkbox actuel pour mise à jour UI
+            current_checkbox_item = download_queue[current_video_index]
+            url = current_checkbox_item.data # On récupère l'URL stockée dans l'objet
+
+            # --- MISE A JOUR UI : EN COURS (⏩) ---
+            # On nettoie d'abord les éventuels symboles précédents pour ne garder que le titre
+            clean_title = current_checkbox_item.label.replace("⏩ ", "").replace("✔️ ", "").replace("❌ ", "")
+            current_checkbox_item.label = f"⏩ {clean_title}"
+            current_checkbox_item.update()
+
             current_video_label.value = tr("processing", current_video_index + 1, len(download_queue))
+            current_video_label.color = "white" 
             progress_bar.value = 0 
             page.update()
 
@@ -473,6 +493,9 @@ def main(page: ft.Page):
                 'progress_hooks': [progress_hook],
                 'ffmpeg_location': ffmpeg_path,
                 'noplaylist': True,
+                'ignoreerrors': True,
+                # Force le client 'default' (Android/iOS) pour contourner le manque de JS runtime
+                'extractor_args': {'youtube': {'player_client': ['default']}}
             }
 
             if selected_format == "MP3":
@@ -485,7 +508,11 @@ def main(page: ft.Page):
                     }],
                 })
             else:
-                format_string = f'bestvideo[height<={res_value}][ext=mp4]+bestaudio[ext=m4a]/best[height<={res_value}][ext=mp4]/best[height<={res_value}]'
+                if force_compatibility:
+                    format_string = f'bestvideo[height<={res_value}][vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[height<={res_value}][ext=mp4]+bestaudio[ext=m4a]/best[height<={res_value}][ext=mp4]/best[height<={res_value}]'
+                else:
+                    format_string = f'bestvideo[height<={res_value}][ext=mp4]+bestaudio[ext=m4a]/best[height<={res_value}][ext=mp4]/best[height<={res_value}]'
+                
                 ydl_opts.update({
                     'format': format_string,
                 })
@@ -493,19 +520,46 @@ def main(page: ft.Page):
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     ydl.download([url])
+                
+                # --- SUCCÈS : MISE A JOUR UI LISTE (✔️) ---
+                current_checkbox_item.value = False
+                current_checkbox_item.label = f"✔️ {clean_title}"
+                current_checkbox_item.update() 
+
                 current_video_index += 1
                 progress_bar.value = 1 
                 page.update()
+
             except Exception as e:
-                if "PAUSED" in str(e): return
-                elif "CANCELLED" in str(e):
+                # --- ÉCHEC : MISE A JOUR UI LISTE (❌) ---
+                current_checkbox_item.value = False # On décoche pour dire "traité"
+                current_checkbox_item.label = f"❌ {clean_title}"
+                current_checkbox_item.update()
+
+                # GESTION DES ERREURS DANS LA BOUCLE
+                error_msg = str(e)
+                
+                if "PAUSED" in error_msg: 
+                    return 
+                elif "CANCELLED" in error_msg:
                     reset_ui_after_download()
                     return
+                
+                if "Private video" in error_msg or "Sign in" in error_msg:
+                    current_video_label.value = f"{tr('error_private')} {tr('skipped')}"
                 else:
-                    current_video_index += 1 
+                    current_video_label.value = f"Erreur : {error_msg}. {tr('skipped')}"
+                
+                current_video_label.color = "red"
+                progress_bar.value = 0
+                page.update()
+                
+                time.sleep(1.5)
+                current_video_index += 1 
 
         if current_video_index >= len(download_queue):
             current_video_label.value = tr("finished")
+            current_video_label.color = "green"
             play_finish_sound()
             reset_ui_after_download()
 
@@ -514,19 +568,20 @@ def main(page: ft.Page):
         download_queue = []
         for ctrl in videos_list_view.controls:
             if isinstance(ctrl, ft.Checkbox) and ctrl.value:
-                download_queue.append(ctrl.data)
+                # --- MODIFICATION : On stocke l'objet Checkbox entier ---
+                download_queue.append(ctrl)
         
         if not download_queue: return
 
         current_video_index = 0
         set_state(DownloadState.RUNNING)
         
-        # UI Updates
-        start_download_btn.disabled = True # On désactive au lieu de cacher
+        start_download_btn.disabled = True 
         open_folder_btn.visible = False 
         
         resolution_dropdown.disabled = True 
         format_dropdown.disabled = True 
+        compatibility_checkbox.disabled = True 
         controls_row.visible = True
         analyze_btn.disabled = True
         url_input.disabled = True
@@ -545,12 +600,13 @@ def main(page: ft.Page):
         current_state = DownloadState.IDLE
         controls_row.visible = False
         
-        start_download_btn.visible = True # On s'assure qu'il est visible
-        start_download_btn.disabled = False # On réactive
+        start_download_btn.visible = True 
+        start_download_btn.disabled = False 
         open_folder_btn.visible = True 
         
         resolution_dropdown.disabled = False 
         format_dropdown.disabled = False 
+        compatibility_checkbox.disabled = False 
         analyze_btn.disabled = False
         url_input.disabled = False
         videos_list_view.disabled = False
