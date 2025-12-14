@@ -1,0 +1,119 @@
+📱 Guide : Compiler son APK Android via GitHub Actions (Cloud)
+
+Ce guide t'explique comment transformer ton fichier Python (main_android.py) en une application Android (.apk) installable, en utilisant les serveurs de GitHub.
+
+📂 Étape 1 : Préparation des fichiers locaux
+
+Avant d'envoyer quoi que ce soit sur GitHub, ton dossier de projet sur ton ordinateur doit être propre et contenir ces 3 éléments essentiels.
+
+1. Ton code source
+
+Assure-toi que ton fichier s'appelle bien main_android.py (celui que j'ai créé pour toi précédemment).
+
+2. Le fichier des dépendances (requirements.txt)
+
+Crée un fichier texte nommé exactement requirements.txt à côté de ton script. Il indique au serveur quels modules installer.
+Contenu du fichier :
+
+flet
+yt-dlp
+
+
+(Note : On ne met pas imageio-ffmpeg car la version Android n'utilise pas les binaires FFmpeg).
+
+3. (Optionnel) Une icône
+
+Si tu as une image icon.png, mets-la dans le dossier. Sinon, l'app aura l'icône Flet par défaut.
+
+☁️ Étape 2 : Création du Repository GitHub
+
+Connecte-toi sur GitHub.com.
+
+Clique sur le bouton + en haut à droite > New repository.
+
+Donne un nom (ex: youtube-downloader-app).
+
+Laisse en Public (c'est gratuit et plus simple pour commencer).
+
+Clique sur Create repository.
+
+🚀 Étape 3 : Mettre ton code sur GitHub
+
+Tu as deux options pour envoyer tes fichiers :
+
+Option Facile (Web) :
+
+Dans ton nouveau repository GitHub, clique sur "uploading an existing file".
+
+Glisse tes fichiers (main_android.py et requirements.txt) dans la zone.
+
+Clique sur "Commit changes".
+
+Option Pro (Git) : Si tu as Git installé, fais les commandes habituelles (git init, git add ., git commit, git push).
+
+⚙️ Étape 4 : Créer le Workflow (Le Cerveau)
+
+C'est ici que la magie opère. Nous allons donner les instructions au robot de GitHub.
+
+Dans ton repository sur GitHub, clique sur l'onglet Actions (en haut).
+
+Clique sur set up a workflow yourself (lien bleu souvent discret).
+
+Nomme le fichier : main.yml (ou android_build.yml).
+
+Copie et colle exactement le code ci-dessous dans l'éditeur :
+
+name: Build Android APK
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch: # Permet de lancer manuellement avec un bouton
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1. Récupérer le code
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    # 2. Installer Python
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    # 3. Installer Java (Nécessaire pour Android)
+    - name: Setup Java
+      uses: actions/setup-java@v3
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    # 4. Installer Flutter (Moteur de Flet Mobile)
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.19.0' # Version stable recommandée
+
+    # 5. Installer les dépendances Python
+    - name: Install Dependencies
+      run: |
+        pip install -r requirements.txt
+        pip install flet # On s'assure que Flet est là pour la commande build
+
+    # 6. Compiler l'APK
+    # CORRECTION : Suppression de --product-name et --org qui causaient l'erreur
+    # On garde uniquement --project et --verbose
+    - name: Build APK with Flet
+      run: |
+        flet build apk --project main_android.py --verbose
+
+    # 7. Sauvegarder l'APK pour que tu puisses le télécharger
+    - name: Upload APK Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: youtube-downloader-apk
+        path: build/apk/app-release.apk
