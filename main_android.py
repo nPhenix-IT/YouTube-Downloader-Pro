@@ -22,11 +22,13 @@ TRANSLATIONS = {
         "waiting": "En attente...",
         "pause_state": "PAUSE",
         "finished": "Terminé !",
-        "folder_label": "Sauvegardé dans Downloads",
+        "folder_label": "Dossier : {}",
         "analyzing": "Analyse...",
         "videos_found": "{} vidéos",
         "error": "Erreur : {}",
-        "error_private": "Vidéo privée/inaccessible détectée.",
+        "error_private": "Vidéo privée/inaccessible.",
+        "error_perm": "Permission refusée -> Tentative dossier secours...",
+        "fallback_ok": "Sauvegardé dans dossier privé (Android/data)",
         "skipped": "Ignorée...",
         "processing": "{} / {}"
     },
@@ -45,11 +47,13 @@ TRANSLATIONS = {
         "waiting": "Waiting...",
         "pause_state": "PAUSED",
         "finished": "Done!",
-        "folder_label": "Saved in Downloads",
+        "folder_label": "Folder: {}",
         "analyzing": "Analyzing...",
         "videos_found": "{} videos",
         "error": "Error: {}",
-        "error_private": "Private/Unavailable video detected.",
+        "error_private": "Private/Unavailable video.",
+        "error_perm": "Permission denied -> Trying fallback folder...",
+        "fallback_ok": "Saved in private folder (Android/data)",
         "skipped": "Skipped...",
         "processing": "{} / {}"
     }
@@ -76,29 +80,16 @@ def main(page: ft.Page):
     page.title = tr("window_title")
     page.theme_mode = "dark"
     page.padding = 10
-    # Sur mobile, on active le scroll car le clavier peut masquer des éléments
     page.scroll = "auto" 
-    
-    # Pas de dimensions fixes sur mobile
     page.vertical_alignment = "start"
     page.horizontal_alignment = "center"
 
     # --- Variables d'état ---
-    # Chemin standard Android pour les téléchargements publics
-    try:
-        if platform.system() == "Android":
-            from android.storage import primary_external_storage_path
-            dir = primary_external_storage_path()
-            download_path = os.path.join(dir, 'Download')
-        else:
-            # Fallback pour test sur PC
-            download_path = os.path.join(os.path.expanduser('~'), 'Downloads')
-    except:
-        download_path = "/storage/emulated/0/Download"
-
-    if not os.path.exists(download_path):
-        try: os.makedirs(download_path)
-        except: pass
+    # Stratégie de dossiers : Public d'abord, Privé en secours
+    public_download_path = "/storage/emulated/0/Download"
+    # Chemin privé spécifique à l'app (toujours accessible sans permission)
+    # Note : "com.example.apk_project" correspond au package par défaut de flet create
+    private_download_path = "/storage/emulated/0/Android/data/com.example.apk_project/files"
 
     current_state = DownloadState.IDLE
     video_list_data = []
@@ -127,7 +118,7 @@ def main(page: ft.Page):
     search_area = ft.Row([url_input, analyze_btn], alignment="center")
 
     # --- UI : Liste Vidéos ---
-    videos_list_view = ft.ListView(height=150, spacing=5, padding=5) # Hauteur fixe pour scroller dedans
+    videos_list_view = ft.ListView(height=150, spacing=5, padding=5) 
     select_all_checkbox = ft.Checkbox(label=tr("select_all"), value=True, on_change=lambda e: toggle_select_all(e))
     list_info_text = ft.Text(tr("no_video"), color="grey", italic=True, size=12)
 
@@ -141,7 +132,7 @@ def main(page: ft.Page):
         border=ft.border.all(1, "grey"),
         border_radius=10,
         padding=10,
-        visible=False # Caché au départ
+        visible=False 
     )
 
     # --- UI : Options & Actions ---
@@ -161,7 +152,7 @@ def main(page: ft.Page):
         text_size=14,
         options=[
             ft.dropdown.Option("MP4"),
-            ft.dropdown.Option("AUDIO"), # On évite "MP3" car conversion impossible sans ffmpeg binaire
+            ft.dropdown.Option("AUDIO"), 
         ],
         value="MP4",
         on_change=on_format_change
@@ -180,22 +171,24 @@ def main(page: ft.Page):
     )
 
     current_video_label = ft.Text(tr("waiting"), weight="bold", size=12, text_align="center")
+    current_video_label.no_wrap = False 
+    
     progress_bar = ft.ProgressBar(width=200, value=0, color="blue", bgcolor="grey") 
     
-    # Indicateurs compacts pour mobile
     status_row = ft.Row(
         [
-            ft.Text("-", size=10, color="grey", ref=lambda x: setattr(x, 'key', 'speed')), # Fake ref
+            ft.Text("-", size=10, color="grey", ref=lambda x: setattr(x, 'key', 'speed')), 
             ft.Text("-", size=10, color="grey", ref=lambda x: setattr(x, 'key', 'eta'))
         ], 
         alignment="space_between", width=200
     )
-    # On garde des références manuelles pour mise à jour
     speed_text = status_row.controls[0]
     eta_text = status_row.controls[1]
 
     btn_cancel = ft.IconButton(icon="stop", icon_size=30, icon_color="red", on_click=lambda e: set_state(DownloadState.CANCELLED))
     
+    folder_info_text = ft.Text(tr("folder_label", "..."), size=10, color="grey")
+
     controls_column = ft.Column(
         [
             ft.Divider(),
@@ -209,10 +202,10 @@ def main(page: ft.Page):
             status_row,
             ft.Container(height=10),
             btn_cancel,
-            ft.Text(tr("folder_label"), size=10, color="grey")
+            folder_info_text
         ],
         horizontal_alignment="center",
-        visible=False # Caché au départ
+        visible=False 
     )
 
     # --- Logique Métier ---
@@ -237,7 +230,6 @@ def main(page: ft.Page):
 
     def run_analyze(url):
         nonlocal video_list_data
-        # Sur mobile, on veut être léger
         ydl_opts = {'extract_flat': True, 'quiet': True}
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -248,7 +240,6 @@ def main(page: ft.Page):
             videos_list_view.controls.clear()
             for vid in video_list_data:
                 title = vid.get('title', 'Sans titre')
-                # Gestion ID vs URL selon playlist ou video
                 vid_id = vid.get('id')
                 vid_url = vid.get('url')
                 final_url = vid_url if vid_url and "youtube" in vid_url else f"https://www.youtube.com/watch?v={vid_id}"
@@ -291,11 +282,15 @@ def main(page: ft.Page):
         nonlocal current_video_index, current_state
         
         selected_format = format_dropdown.value
+        
+        # Choix initial du dossier (Public)
+        target_dir = public_download_path
+        folder_info_text.value = tr("folder_label", "Download (Public)")
+        page.update()
 
         while current_video_index < len(download_queue):
             if current_state == DownloadState.CANCELLED: break
 
-            # Récupération de l'objet Checkbox
             current_checkbox_item = download_queue[current_video_index]
             url = current_checkbox_item.data
 
@@ -305,60 +300,88 @@ def main(page: ft.Page):
             current_checkbox_item.update()
 
             current_video_label.value = tr("processing", current_video_index + 1, len(download_queue))
+            current_video_label.color = "white"
             progress_bar.value = 0 
             page.update()
 
-            # CONFIGURATION CRITIQUE POUR ANDROID
+            # Configuration de base
             ydl_opts = {
-                'outtmpl': os.path.join(download_path, '%(title)s.%(ext)s'),
+                'outtmpl': os.path.join(target_dir, '%(title)s.%(ext)s'),
                 'progress_hooks': [progress_hook],
                 'noplaylist': True,
-                # Important: ignorer les erreurs SSL sur certains vieux androids
                 'nocheckcertificate': True,
                 'ignoreerrors': True,
-                # Force le client 'default' (Android/iOS)
                 'extractor_args': {'youtube': {'player_client': ['default']}}
             }
 
             if selected_format == "AUDIO":
-                # On prend le meilleur audio dispo (souvent m4a), pas de conversion mp3
                 ydl_opts.update({'format': 'bestaudio/best'})
             else:
-                # On prend le meilleur fichier qui contient DEJA video+audio (souvent 720p ou 360p max)
                 ydl_opts.update({'format': 'best[ext=mp4]'})
 
+            success = False
+            
+            # TENTATIVE 1 : Dossier Public
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     ydl.download([url])
+                success = True
+            except Exception as e:
+                error_msg = str(e)
+                # Si erreur de permission, on tente le dossier privé
+                if "Permission denied" in error_msg or "EACCES" in error_msg or "OSError" in error_msg:
+                    current_video_label.value = tr("error_perm")
+                    current_video_label.color = "orange"
+                    page.update()
+                    time.sleep(1)
+                    
+                    # TENTATIVE 2 : Dossier Privé (Secours)
+                    try:
+                        # On crée le dossier privé si besoin
+                        if not os.path.exists(private_download_path):
+                            os.makedirs(private_download_path, exist_ok=True)
+                        
+                        target_dir = private_download_path
+                        ydl_opts['outtmpl'] = os.path.join(target_dir, '%(title)s.%(ext)s')
+                        folder_info_text.value = tr("folder_label", "Android/data/... (Private)")
+                        page.update()
+                        
+                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                            ydl.download([url])
+                        
+                        success = True
+                        current_video_label.value = tr("fallback_ok")
+                        time.sleep(1)
+                        
+                    except Exception as e2:
+                        print(f"Echec fallback: {e2}")
+                        success = False
                 
-                # --- SUCCÈS : MISE A JOUR UI LISTE (✔️) ---
+                elif "CANCELLED" in error_msg:
+                    break
+                else:
+                    success = False # Autre erreur (ex: video privée)
+
+            # Résultat Final pour cet élément
+            if success:
                 current_checkbox_item.value = False
                 current_checkbox_item.label = f"✔️ {clean_title}"
                 current_checkbox_item.update()
-
-                current_video_index += 1
-            except Exception as e:
-                # --- ÉCHEC : MISE A JOUR UI LISTE (❌) ---
+            else:
                 current_checkbox_item.value = False
                 current_checkbox_item.label = f"❌ {clean_title}"
                 current_checkbox_item.update()
+                # Si l'erreur n'est pas déjà affichée
+                if current_video_label.color != "orange":
+                    current_video_label.value = f"Erreur."
+                    current_video_label.color = "red"
+                    page.update()
+                    time.sleep(1.5)
 
-                print(f"Erreur DL: {e}")
-                if "CANCELLED" in str(e):
-                    break
-                
-                # Gestion erreur Private video sur mobile
-                error_msg = str(e)
-                if "Private video" in error_msg or "Sign in" in error_msg:
-                    current_video_label.value = f"{tr('error_private')} {tr('skipped')}"
-                else:
-                    current_video_label.value = f"Erreur. {tr('skipped')}"
-                page.update()
-                time.sleep(1)
-
-                current_video_index += 1 
+            current_video_index += 1 
 
         current_video_label.value = tr("finished")
+        current_video_label.color = "green"
         start_download_btn.disabled = False
         analyze_btn.disabled = False
         page.update()
@@ -368,7 +391,6 @@ def main(page: ft.Page):
         download_queue = []
         for ctrl in videos_list_view.controls:
             if isinstance(ctrl, ft.Checkbox) and ctrl.value:
-                # On stocke l'objet entier pour le modifier
                 download_queue.append(ctrl)
         
         if not download_queue: return
