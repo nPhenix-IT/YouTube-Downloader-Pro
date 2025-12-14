@@ -1,4 +1,4 @@
-name: Build Android APK (Robust)
+name: Build Android APK (Fixed)
 
 on:
   push:
@@ -27,47 +27,56 @@ jobs:
     - name: Setup Flutter
       uses: subosito/flutter-action@v2
       with:
-        flutter-version: '3.19.0'
+        flutter-version: '3.22.0' # Version récente stable
 
     - name: Install Dependencies
       run: |
         pip install -r requirements.txt
         pip install flet
 
-    # 1. On génère la structure du projet Flet UNE SEULE FOIS
+    # 1. On génère la structure du projet Flet
     - name: Scaffold Flet Project
       run: |
+        # On crée le projet
         flet create apk_project
+        
+        # On attend un peu pour être sûr que le système de fichier est synchro
+        sleep 2
+        
         # On remplace le code par le nôtre
         cp main_android.py apk_project/main.py
         cp requirements.txt apk_project/
 
-    # 2. On injecte les permissions MANUELLEMENT dans le Manifest
+    # 2. DEBUG & Injection des permissions
     - name: Inject Permissions
       run: |
-        # Chemin vers le fichier de config Android
-        MANIFEST="apk_project/android/app/src/main/AndroidManifest.xml"
+        echo "Recherche du fichier AndroidManifest.xml..."
+        # On utilise find pour localiser le fichier, peu importe où il est
+        MANIFEST=$(find apk_project -name "AndroidManifest.xml" | head -n 1)
         
-        # On insère les permissions juste après l'ouverture de la balise <manifest>
-        # Cette méthode via sed est compatible Linux (GitHub Actions)
-        sed -i 's/<manifest xmlns:android="http:\/\/schemas.android.com\/apk\/res\/android"/<manifest xmlns:android="http:\/\/schemas.android.com\/apk\/res\/android"\n    package="com.example.apk_project">/' $MANIFEST
-        
-        # Injection des permissions de stockage et internet
-        sed -i '/<application/i \    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>' $MANIFEST
-        sed -i '/<application/i \    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>' $MANIFEST
-        sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>' $MANIFEST
-        
-        echo "--- Vérification du Manifest ---"
-        cat $MANIFEST
+        if [ -z "$MANIFEST" ]; then
+            echo "ERREUR: AndroidManifest.xml introuvable !"
+            # Listons les fichiers pour comprendre la structure
+            find apk_project -maxdepth 4
+            exit 1
+        else
+            echo "Fichier trouvé : $MANIFEST"
+            
+            # Injection des permissions de stockage et internet
+            # On utilise une syntaxe sed simple et robuste
+            sed -i '/<application/i \    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>' "$MANIFEST"
+            sed -i '/<application/i \    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>' "$MANIFEST"
+            sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>' "$MANIFEST"
+            
+            echo "--- Permissions injectées ---"
+            grep "uses-permission" "$MANIFEST"
+        fi
 
-    # 3. Compilation avec FLUTTER DIRECTEMENT (et non flet build)
-    # Cela empêche Flet d'écraser nos modifications du Manifest
+    # 3. Compilation avec FLUTTER
     - name: Build APK with Flutter
       run: |
         cd apk_project
-        # On s'assure que tout est propre
         flutter pub get
-        # Compilation Release
         flutter build apk --release
 
     - name: Upload APK Artifact
