@@ -27,7 +27,7 @@ jobs:
     - name: Setup Flutter
       uses: subosito/flutter-action@v2
       with:
-        flutter-version: '3.22.0'
+        flutter-version: '3.27.0' # Mise à jour nécessaire pour Flet 0.28+ (Dart 3.6)
 
     - name: Install Dependencies
       run: |
