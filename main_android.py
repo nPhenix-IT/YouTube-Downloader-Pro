@@ -3,10 +3,9 @@ import yt_dlp
 import os
 import threading
 import platform
+import time
 
 # --- Système de Traduction Simplifié (FR/EN) ---
-# Sur Android, la détection complexe via ctypes/subprocess ne fonctionne pas.
-# On se base sur une logique par défaut simple ou on pourrait ajouter un sélecteur dans l'UI.
 TRANSLATIONS = {
     "fr": {
         "window_title": "YouTube Downloader PRO",
@@ -27,6 +26,8 @@ TRANSLATIONS = {
         "analyzing": "Analyse...",
         "videos_found": "{} vidéos",
         "error": "Erreur : {}",
+        "error_private": "Vidéo privée/inaccessible détectée.",
+        "skipped": "Ignorée...",
         "processing": "{} / {}"
     },
     "en": {
@@ -48,6 +49,8 @@ TRANSLATIONS = {
         "analyzing": "Analyzing...",
         "videos_found": "{} videos",
         "error": "Error: {}",
+        "error_private": "Private/Unavailable video detected.",
+        "skipped": "Skipped...",
         "processing": "{} / {}"
     }
 }
@@ -292,20 +295,29 @@ def main(page: ft.Page):
         while current_video_index < len(download_queue):
             if current_state == DownloadState.CANCELLED: break
 
-            url = download_queue[current_video_index]
+            # Récupération de l'objet Checkbox
+            current_checkbox_item = download_queue[current_video_index]
+            url = current_checkbox_item.data
+
+            # --- UI : EN COURS (⏩) ---
+            clean_title = current_checkbox_item.label.replace("⏩ ", "").replace("✔️ ", "").replace("❌ ", "")
+            current_checkbox_item.label = f"⏩ {clean_title}"
+            current_checkbox_item.update()
+
             current_video_label.value = tr("processing", current_video_index + 1, len(download_queue))
             progress_bar.value = 0 
             page.update()
 
             # CONFIGURATION CRITIQUE POUR ANDROID
-            # Pas de ffmpeg -> On ne peut pas fusionner video+audio.
-            # On doit télécharger le meilleur format UNIQUE disponible.
             ydl_opts = {
                 'outtmpl': os.path.join(download_path, '%(title)s.%(ext)s'),
                 'progress_hooks': [progress_hook],
                 'noplaylist': True,
                 # Important: ignorer les erreurs SSL sur certains vieux androids
-                'nocheckcertificate': True, 
+                'nocheckcertificate': True,
+                'ignoreerrors': True,
+                # Force le client 'default' (Android/iOS)
+                'extractor_args': {'youtube': {'player_client': ['default']}}
             }
 
             if selected_format == "AUDIO":
@@ -313,17 +325,37 @@ def main(page: ft.Page):
                 ydl_opts.update({'format': 'bestaudio/best'})
             else:
                 # On prend le meilleur fichier qui contient DEJA video+audio (souvent 720p ou 360p max)
-                # Si on demande 1080p, YouTube sépare souvent les pistes et ça échouera sans ffmpeg.
                 ydl_opts.update({'format': 'best[ext=mp4]'})
 
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     ydl.download([url])
+                
+                # --- SUCCÈS : MISE A JOUR UI LISTE (✔️) ---
+                current_checkbox_item.value = False
+                current_checkbox_item.label = f"✔️ {clean_title}"
+                current_checkbox_item.update()
+
                 current_video_index += 1
             except Exception as e:
+                # --- ÉCHEC : MISE A JOUR UI LISTE (❌) ---
+                current_checkbox_item.value = False
+                current_checkbox_item.label = f"❌ {clean_title}"
+                current_checkbox_item.update()
+
                 print(f"Erreur DL: {e}")
                 if "CANCELLED" in str(e):
                     break
+                
+                # Gestion erreur Private video sur mobile
+                error_msg = str(e)
+                if "Private video" in error_msg or "Sign in" in error_msg:
+                    current_video_label.value = f"{tr('error_private')} {tr('skipped')}"
+                else:
+                    current_video_label.value = f"Erreur. {tr('skipped')}"
+                page.update()
+                time.sleep(1)
+
                 current_video_index += 1 
 
         current_video_label.value = tr("finished")
@@ -336,7 +368,8 @@ def main(page: ft.Page):
         download_queue = []
         for ctrl in videos_list_view.controls:
             if isinstance(ctrl, ft.Checkbox) and ctrl.value:
-                download_queue.append(ctrl.data)
+                # On stocke l'objet entier pour le modifier
+                download_queue.append(ctrl)
         
         if not download_queue: return
 
