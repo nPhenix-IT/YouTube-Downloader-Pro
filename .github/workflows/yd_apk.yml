@@ -1,4 +1,4 @@
-name: Build Android APK (Double Build Strategy)
+name: Build Android APK (Final Fix)
 
 on:
   push:
@@ -24,10 +24,11 @@ jobs:
         distribution: 'temurin'
         java-version: '17'
 
+    # CORRECTION 1 : Version Flutter 3.27.0+ requise pour Flet 0.28+
     - name: Setup Flutter
       uses: subosito/flutter-action@v2
       with:
-        flutter-version: '3.27.0' # Mise à jour nécessaire pour Flet 0.28+ (Dart 3.6)
+        flutter-version: '3.27.0'
 
     - name: Install Dependencies
       run: |
@@ -48,14 +49,12 @@ jobs:
         
         # On lance un PREMIER build. 
         # Cela va générer le dossier 'build/flutter' qui contient le projet Android.
-        # On ne s'intéresse pas à l'APK produit ici, juste à la structure.
         flet build apk --verbose
 
     # 2. INJECTION DES PERMISSIONS (Maintenant que le fichier existe)
     - name: Inject Permissions
       run: |
         echo "Recherche du fichier AndroidManifest.xml généré..."
-        # On cherche le fichier dans le dossier de build généré par Flet
         MANIFEST=$(find apk_project -name "AndroidManifest.xml" | grep "main/AndroidManifest.xml" | head -n 1)
         
         if [ -z "$MANIFEST" ]; then
@@ -74,19 +73,27 @@ jobs:
         echo "--- Vérification ---"
         grep "uses-permission" "$MANIFEST"
 
-    # 3. RE-COMPILATION FINALE (Avec Flutter directement)
+    # 3. RE-COMPILATION FINALE (Correction Variables Env)
     - name: Final Build with Flutter
       run: |
-        # On trouve le dossier du projet Flutter généré (là où est pubspec.yaml)
+        # Localisation du projet Flutter
         FLUTTER_ROOT=$(dirname $(find apk_project -name "pubspec.yaml" | grep "build" | head -n 1))
         echo "Racine Flutter : $FLUTTER_ROOT"
         
+        # CORRECTION 2 : Calcul des chemins Python pour Gradle
+        SITE_PKGS=$(python -c "import site; print(site.getsitepackages()[0])")
+        echo "Site Packages: $SITE_PKGS"
+        
+        # Export des variables obligatoires pour serious-python
+        export SERIOUS_PYTHON_SITE_PACKAGES="$SITE_PKGS"
+        export SERIOUS_PYTHON_APP_SRC="$(pwd)/apk_project"
+        
         cd "$FLUTTER_ROOT"
         
-        # On recompile l'APK en mode Release (cette fois avec les permissions !)
+        # Compilation Release avec les permissions injectées
         flutter build apk --release
         
-        # On sort l'APK du dossier profond pour le rendre accessible
+        # Récupération de l'APK
         mkdir -p ../../../output
         cp build/app/outputs/flutter-apk/app-release.apk ../../../output/youtube-downloader.apk
 
