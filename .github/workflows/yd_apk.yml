@@ -49,6 +49,7 @@ jobs:
         
         # On lance un PREMIER build. 
         # Cela va générer le dossier 'build/flutter' qui contient le projet Android.
+        # On ne s'intéresse pas à l'APK produit ici, juste à la structure.
         flet build apk --verbose
 
     # 2. INJECTION DES PERMISSIONS (Maintenant que le fichier existe)
