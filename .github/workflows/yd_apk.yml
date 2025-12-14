@@ -1,4 +1,4 @@
-name: Build Android APK with Permissions
+name: Build Android APK (Robust)
 
 on:
   push:
@@ -34,35 +34,44 @@ jobs:
         pip install -r requirements.txt
         pip install flet
 
-    # --- CORRECTION PERMISSIONS ---
-    # 1. On crée un vrai projet Flet pour avoir accès aux fichiers de config
-    - name: Create Flet Project
+    # 1. On génère la structure du projet Flet UNE SEULE FOIS
+    - name: Scaffold Flet Project
       run: |
-        flet create my_app
-        # On remplace le main du projet par notre code
-        cp main_android.py my_app/main.py
-        cp requirements.txt my_app/
+        flet create apk_project
+        # On remplace le code par le nôtre
+        cp main_android.py apk_project/main.py
+        cp requirements.txt apk_project/
 
-    # 2. On injecte les permissions dans le fichier AndroidManifest.xml
-    - name: Inject Permissions in Manifest
+    # 2. On injecte les permissions MANUELLEMENT dans le Manifest
+    - name: Inject Permissions
       run: |
-        MANIFEST="my_app/android/app/src/main/AndroidManifest.xml"
-        # On insère les permissions de stockage et internet
+        # Chemin vers le fichier de config Android
+        MANIFEST="apk_project/android/app/src/main/AndroidManifest.xml"
+        
+        # On insère les permissions juste après l'ouverture de la balise <manifest>
+        # Cette méthode via sed est compatible Linux (GitHub Actions)
+        sed -i 's/<manifest xmlns:android="http:\/\/schemas.android.com\/apk\/res\/android"/<manifest xmlns:android="http:\/\/schemas.android.com\/apk\/res\/android"\n    package="com.example.apk_project">/' $MANIFEST
+        
+        # Injection des permissions de stockage et internet
         sed -i '/<application/i \    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>' $MANIFEST
         sed -i '/<application/i \    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>' $MANIFEST
         sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>' $MANIFEST
         
-        # Vérification (optionnel, pour le log)
+        echo "--- Vérification du Manifest ---"
         cat $MANIFEST
 
-    # 3. On compile le projet modifié
-    - name: Build APK
+    # 3. Compilation avec FLUTTER DIRECTEMENT (et non flet build)
+    # Cela empêche Flet d'écraser nos modifications du Manifest
+    - name: Build APK with Flutter
       run: |
-        cd my_app
-        flet build apk --verbose
+        cd apk_project
+        # On s'assure que tout est propre
+        flutter pub get
+        # Compilation Release
+        flutter build apk --release
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       with:
         name: youtube-downloader-apk
-        path: my_app/build/apk/app-release.apk
+        path: apk_project/build/app/outputs/flutter-apk/app-release.apk
