@@ -1,0 +1,54 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch: # Permet de lancer manuellement avec un bouton
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1. Récupérer le code
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    # 2. Installer Python
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    # 3. Installer Java (Nécessaire pour Android)
+    - name: Setup Java
+      uses: actions/setup-java@v3
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    # 4. Installer Flutter (Moteur de Flet Mobile)
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.19.0' # Version stable recommandée
+
+    # 5. Installer les dépendances Python
+    - name: Install Dependencies
+      run: |
+        pip install -r requirements.txt
+        pip install flet # On s'assure que Flet est là pour la commande build
+
+    # 6. Compiler l'APK
+    # CORRECTION : Suppression de --product-name et --org qui causaient l'erreur
+    # On garde uniquement --project et --verbose
+    - name: Build APK with Flet
+      run: |
+        flet build apk --project main_android.py --verbose
+
+    # 7. Sauvegarder l'APK pour que tu puisses le télécharger
+    - name: Upload APK Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: youtube-downloader-apk
+        path: build/apk/app-release.apk
