@@ -4,6 +4,7 @@ import os
 import threading
 import platform
 import time
+import certifi # FIX: Import obligatoire pour que le module soit inclus dans l'APK
 
 # --- Système de Traduction Simplifié (FR/EN) ---
 TRANSLATIONS = {
@@ -76,9 +77,19 @@ class DownloadState:
     IDLE = "idle"
 
 def main(page: ft.Page):
+    # --- FIX CRITIQUE SSL ---
+    # On force Python à utiliser le fichier de certificats de 'certifi'
+    # Cela corrige le crash au démarrage sur Android
+    os.environ["SSL_CERT_FILE"] = certifi.where()
+
     # --- Configuration Mobile ---
     page.title = tr("window_title")
     page.theme_mode = "dark"
+    
+    # FIX: Eviter le plein écran strict et respecter la barre de statut
+    page.safe_area = True 
+    page.window_full_screen = False # Désactive le mode immersif total
+
     page.padding = 10
     page.scroll = "auto" 
     page.vertical_alignment = "start"
@@ -88,7 +99,6 @@ def main(page: ft.Page):
     # Stratégie de dossiers : Public d'abord, Privé en secours
     public_download_path = "/storage/emulated/0/Download"
     # Chemin privé spécifique à l'app (toujours accessible sans permission)
-    # Note : "com.example.apk_project" correspond au package par défaut de flet create
     private_download_path = "/storage/emulated/0/Android/data/com.example.apk_project/files"
 
     current_state = DownloadState.IDLE
@@ -337,7 +347,6 @@ def main(page: ft.Page):
                     
                     # TENTATIVE 2 : Dossier Privé (Secours)
                     try:
-                        # On crée le dossier privé si besoin
                         if not os.path.exists(private_download_path):
                             os.makedirs(private_download_path, exist_ok=True)
                         
@@ -360,9 +369,9 @@ def main(page: ft.Page):
                 elif "CANCELLED" in error_msg:
                     break
                 else:
-                    success = False # Autre erreur (ex: video privée)
+                    success = False
 
-            # Résultat Final pour cet élément
+            # Résultat Final
             if success:
                 current_checkbox_item.value = False
                 current_checkbox_item.label = f"✔️ {clean_title}"
@@ -371,7 +380,6 @@ def main(page: ft.Page):
                 current_checkbox_item.value = False
                 current_checkbox_item.label = f"❌ {clean_title}"
                 current_checkbox_item.update()
-                # Si l'erreur n'est pas déjà affichée
                 if current_video_label.color != "orange":
                     current_video_label.value = f"Erreur."
                     current_video_label.color = "red"
