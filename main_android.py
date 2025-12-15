@@ -4,7 +4,18 @@ import os
 import threading
 import platform
 import time
-import certifi # FIX: Import obligatoire pour que le module soit inclus dans l'APK
+
+# --- FIX ROBUSTE SSL (Anti-Crash) ---
+# On tente d'importer certifi pour la sécurité SSL.
+# Si ça échoue (module absent sur Android), on ne fait PAS planter l'application.
+# On continue simplement sans, et on comptera sur l'option 'nocheckcertificate' de yt-dlp.
+try:
+    import certifi
+    os.environ["SSL_CERT_FILE"] = certifi.where()
+    SSL_AVAILABLE = True
+except ImportError:
+    SSL_AVAILABLE = False
+    print("Attention: Module certifi manquant. Passage en mode dégradé.")
 
 # --- Système de Traduction Simplifié (FR/EN) ---
 TRANSLATIONS = {
@@ -77,18 +88,15 @@ class DownloadState:
     IDLE = "idle"
 
 def main(page: ft.Page):
-    # --- FIX CRITIQUE SSL ---
-    # On force Python à utiliser le fichier de certificats de 'certifi'
-    # Cela corrige le crash au démarrage sur Android
-    os.environ["SSL_CERT_FILE"] = certifi.where()
-
     # --- Configuration Mobile ---
     page.title = tr("window_title")
     page.theme_mode = "dark"
     
-    # FIX: Eviter le plein écran strict et respecter la barre de statut
+    # --- FIX ECRAN ---
+    # Désactive le plein écran immersif pour garder la barre de statut (Heure, Batterie) visible
+    page.window_full_screen = False 
+    # Active la zone de sécurité pour ne pas cacher de contenu derrière l'encoche caméra
     page.safe_area = True 
-    page.window_full_screen = False # Désactive le mode immersif total
 
     page.padding = 10
     page.scroll = "auto" 
@@ -319,6 +327,7 @@ def main(page: ft.Page):
                 'outtmpl': os.path.join(target_dir, '%(title)s.%(ext)s'),
                 'progress_hooks': [progress_hook],
                 'noplaylist': True,
+                # Important pour Android: ignorer les erreurs SSL
                 'nocheckcertificate': True,
                 'ignoreerrors': True,
                 'extractor_args': {'youtube': {'player_client': ['default']}}
@@ -399,6 +408,7 @@ def main(page: ft.Page):
         download_queue = []
         for ctrl in videos_list_view.controls:
             if isinstance(ctrl, ft.Checkbox) and ctrl.value:
+                # --- MODIFICATION : On stocke l'objet Checkbox entier ---
                 download_queue.append(ctrl)
         
         if not download_queue: return
